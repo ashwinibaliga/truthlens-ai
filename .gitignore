@@ -1,0 +1,23 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+backend/temp_uploads/
+backend/truthlens.db
+
+# Node.js
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Environment variables
+.env
+frontend/.env
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

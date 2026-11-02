@@ -1,0 +1,21 @@
+{
+  "name": "truthlens-ai",
+  "version": "1.0.0",
+  "description": "TruthLens AI: See Beyond What Looks Real. Luxury editorial multi-modal synthetic media detection.",
+  "scripts": {
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build",
+    "start:backend": "python -m uvicorn backend.main:app --reload --port 8000"
+  },
+  "keywords": [
+    "truthlens",
+    "deepfake-detection",
+    "ai-detection",
+    "forensics",
+    "multimodal",
+    "fastapi",
+    "react"
+  ],
+  "author": "TruthLens AI Team",
+  "license": "MIT"
+}
