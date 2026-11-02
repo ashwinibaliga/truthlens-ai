@@ -2,6 +2,20 @@ import { ScanResponse, StatsResponse, ProviderStatus, MediaType } from '../types
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+let currentAuthToken: string | null = null;
+
+export function setAuthToken(token: string | null) {
+  currentAuthToken = token;
+}
+
+function getAuthHeaders(existingHeaders: Record<string, string> = {}): Record<string, string> {
+  const headers = { ...existingHeaders };
+  if (currentAuthToken) {
+    headers['Authorization'] = `Bearer ${currentAuthToken}`;
+  }
+  return headers;
+}
+
 export async function fetchHealth(): Promise<{ status: string; service: string; version: string }> {
   const res = await fetch(`${API_BASE_URL}/health`);
   if (!res.ok) throw new Error(`Health check failed: ${res.statusText}`);
@@ -15,6 +29,7 @@ export async function uploadAndScan(file: File, mediaType: MediaType): Promise<S
 
   const res = await fetch(`${API_BASE_URL}/api/scans`, {
     method: 'POST',
+    headers: getAuthHeaders(),
     body: formData,
   });
 
@@ -29,7 +44,7 @@ export async function uploadAndScan(file: File, mediaType: MediaType): Promise<S
 export async function analyzeText(text: string, title?: string): Promise<ScanResponse> {
   const res = await fetch(`${API_BASE_URL}/api/text/analyze`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ text, title: title || 'Pasted Text Passage' }),
   });
 
@@ -47,6 +62,7 @@ export async function uploadTextDoc(file: File): Promise<ScanResponse> {
 
   const res = await fetch(`${API_BASE_URL}/api/text/upload`, {
     method: 'POST',
+    headers: getAuthHeaders(),
     body: formData,
   });
 
@@ -74,13 +90,17 @@ export async function fetchScans(filters?: {
     params.append('limit', filters.limit.toString());
   }
 
-  const res = await fetch(`${API_BASE_URL}/api/scans?${params.toString()}`);
+  const res = await fetch(`${API_BASE_URL}/api/scans?${params.toString()}`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error('Failed to fetch scans history.');
   return res.json();
 }
 
 export async function fetchScanById(id: string): Promise<ScanResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/scans/${id}`);
+  const res = await fetch(`${API_BASE_URL}/api/scans/${id}`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error(`Scan not found (ID: ${id})`);
   return res.json();
 }
@@ -88,13 +108,16 @@ export async function fetchScanById(id: string): Promise<ScanResponse> {
 export async function deleteScan(id: string): Promise<{ success: boolean; message: string }> {
   const res = await fetch(`${API_BASE_URL}/api/scans/${id}`, {
     method: 'DELETE',
+    headers: getAuthHeaders(),
   });
   if (!res.ok) throw new Error('Failed to delete scan record.');
   return res.json();
 }
 
 export async function fetchStats(): Promise<StatsResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/stats`);
+  const res = await fetch(`${API_BASE_URL}/api/stats`, {
+    headers: getAuthHeaders(),
+  });
   if (!res.ok) throw new Error('Failed to fetch dashboard statistics.');
   return res.json();
 }
@@ -104,4 +127,3 @@ export async function fetchProviders(): Promise<ProviderStatus[]> {
   if (!res.ok) throw new Error('Failed to fetch provider status.');
   return res.json();
 }
-

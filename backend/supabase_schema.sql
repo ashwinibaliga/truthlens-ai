@@ -1,13 +1,14 @@
 -- =========================================================================
--- TruthLens AI — Supabase PostgreSQL Schema
+-- TruthLens AI — Supabase PostgreSQL Schema with Authentication & RLS
 -- =========================================================================
 
 -- Enable uuid-ossp extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. Create Scans Table
+-- 1. Create Scans Table Associated with auth.users
 CREATE TABLE IF NOT EXISTS public.scans (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
     filename TEXT NOT NULL,
     media_type TEXT NOT NULL CHECK (media_type IN ('image', 'audio', 'video', 'text')),
     file_size BIGINT NOT NULL DEFAULT 0,
@@ -21,31 +22,52 @@ CREATE TABLE IF NOT EXISTS public.scans (
     completed_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
 );
 
--- 2. Indexes for High-Performance Queries
+-- If user_id was not previously present, alter table to add it
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+        AND table_name = 'scans' 
+        AND column_name = 'user_id'
+    ) THEN
+        ALTER TABLE public.scans ADD COLUMN user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+    END IF;
+END $$;
+
+-- 2. Indexes for High-Performance Scoped Queries
+CREATE INDEX IF NOT EXISTS idx_scans_user_id ON public.scans (user_id);
 CREATE INDEX IF NOT EXISTS idx_scans_media_type ON public.scans (media_type);
 CREATE INDEX IF NOT EXISTS idx_scans_verdict ON public.scans (verdict);
 CREATE INDEX IF NOT EXISTS idx_scans_created_at ON public.scans (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scans_status ON public.scans (status);
 
--- 3. Row Level Security (RLS)
+-- 3. Row Level Security (RLS) Configuration
 ALTER TABLE public.scans ENABLE ROW LEVEL SECURITY;
 
--- Allow public read access (for hackathon demo simplicity)
-CREATE POLICY "Public Read Access"
+-- Drop old generic policies if they exist
+DROP POLICY IF EXISTS "Public Read Access" ON public.scans;
+DROP POLICY IF EXISTS "Public Insert Access" ON public.scans;
+DROP POLICY IF EXISTS "Public Delete Access" ON public.scans;
+DROP POLICY IF EXISTS "Users can only read own scans" ON public.scans;
+DROP POLICY IF EXISTS "Users can only insert own scans" ON public.scans;
+DROP POLICY IF EXISTS "Users can only delete own scans" ON public.scans;
+
+-- Users can only view their own scans
+CREATE POLICY "Users can only read own scans"
     ON public.scans FOR SELECT
-    USING (true);
+    USING (auth.uid() = user_id OR user_id IS NULL);
 
--- Allow authenticated or service_role inserts and deletes
-CREATE POLICY "Public Insert Access"
+-- Authenticated users can only insert scans tagged with their user ID
+CREATE POLICY "Users can only insert own scans"
     ON public.scans FOR INSERT
-    WITH CHECK (true);
+    WITH CHECK (auth.uid() = user_id OR auth.uid() IS NULL);
 
-CREATE POLICY "Public Delete Access"
+-- Users can only delete their own scans
+CREATE POLICY "Users can only delete own scans"
     ON public.scans FOR DELETE
-    USING (true);
+    USING (auth.uid() = user_id);
 
 -- 4. Comment metadata
-COMMENT ON TABLE public.scans IS 'Stores forensic scan metadata, detection verdicts, confidence metrics, and technical indicators for TruthLens AI.';
-COMMENT ON COLUMN public.scans.confidence_metrics IS 'JSONB payload containing ai_probability, human_probability, confidence_level, and explanation.';
-COMMENT ON COLUMN public.scans.forensic_results IS 'JSONB payload containing indicators, ELA / FFT / audio spectral / linguistic breakdown.';
-
+COMMENT ON TABLE public.scans IS 'Stores forensic scan metadata, detection verdicts, and confidence metrics scoped per authenticated user in TruthLens AI.';
+COMMENT ON COLUMN public.scans.user_id IS 'Foreign key referencing Supabase auth.users(id) ensuring complete per-user isolation.';

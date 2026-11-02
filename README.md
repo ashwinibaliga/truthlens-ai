@@ -139,6 +139,40 @@ Frontend will be live at `http://localhost:5173`.
 
 ---
 
+## Authentication & User Isolation (Supabase Auth & RLS)
+
+TruthLens AI includes a complete split-screen authentication architecture with individual user scan isolation and Row Level Security:
+
+- **Split-Screen Design**:
+  - **Left Panel**: Editorial ivory/cream card (`#F8F0E9`, `#FFFFFF`) with rounded input fields, password toggle, terms validation, and burgundy buttons (`#4A1028` to `#681B28`).
+  - **Right Panel**: Luxury deep wine background (`#681B28`, `#4A1028`, `#D8B4AD`) featuring 2D Fourier and Acoustic spectral feature showcases.
+- **Modes**: Sign Up, Sign In, and Password Recovery.
+- **Route Protection**: The Detection Console and History Archive require authentication. Unauthenticated users can explore the Home page, methodology, and technology deep-dives; attempting to scan prompts the authentication flow.
+- **Per-User Isolation**: Every scan record is linked to the authenticated user's `user_id`. Users can view and delete only their own scan archives.
+- **Supabase Row Level Security (RLS)**: Enforces `auth.uid() = user_id` across PostgreSQL `SELECT`, `INSERT`, and `DELETE`.
+- **Google OAuth**: Integrated and active when Google authentication is enabled in the Supabase Dashboard.
+
+### Supabase Auth Configuration Steps:
+1. In your Supabase Project Dashboard, go to **Authentication -> Providers**.
+2. **Email**: Enabled by default. You can toggle *Confirm email* under **Email Auth**.
+3. **Google OAuth (Optional)**:
+   - Enable **Google** in the Providers list.
+   - Enter your **Google Client ID** and **Google Client Secret** from [Google Cloud Console](https://console.cloud.google.com).
+   - Add the Supabase Redirect URL (`https://<project-id>.supabase.co/auth/v1/callback`) to your Google Cloud Authorized Redirect URIs.
+4. Set credentials in `.env` and `frontend/.env`:
+   ```env
+   # Backend .env
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_KEY=your-service-role-or-anon-key
+
+   # Frontend frontend/.env
+   VITE_SUPABASE_URL=https://your-project.supabase.co
+   VITE_SUPABASE_ANON_KEY=your-anon-public-key
+   ```
+*(Note: If Supabase keys are not set yet, TruthLens runs seamlessly in local sandbox mode with isolated developer sessions so you can test all features offline).*
+
+---
+
 ## Database Configuration (Supabase PostgreSQL)
 
 TruthLens AI supports **Supabase PostgreSQL** out of the box with zero code changes required. It automatically falls back to local SQLite (`truthlens.db`) if Supabase credentials are not provided.
@@ -200,3 +234,4 @@ TruthLens AI supports **Supabase PostgreSQL** out of the box with zero code chan
 
 ## License
 MIT License. Developed for TruthLens AI.
+

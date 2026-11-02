@@ -3,19 +3,24 @@ import os
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, status
 from backend.models import (
     MediaType, ScanResponse, ScanStatus, Verdict, TextAnalyzeRequest
 )
 from backend.database import db_create_scan
 from backend.services.forensics_text import analyze_text
+from backend.auth import CurrentUser, get_optional_user
 
 router = APIRouter(prefix="/api/text", tags=["Text Detection"])
 
 @router.post("/analyze", response_model=ScanResponse, status_code=status.HTTP_201_CREATED)
-async def analyze_text_payload(payload: TextAnalyzeRequest):
+async def analyze_text_payload(
+    payload: TextAnalyzeRequest,
+    current_user: Optional[CurrentUser] = Depends(get_optional_user)
+):
     """
     Analyze pasted written text for synthetic AI vs human linguistic traits.
+    Tags scan with authenticated user ID.
     """
     if len(payload.text.strip()) < 15:
         raise HTTPException(
@@ -36,6 +41,7 @@ async def analyze_text_payload(payload: TextAnalyzeRequest):
 
     scan_record = {
         "id": scan_id,
+        "user_id": current_user.id if current_user else None,
         "filename": title,
         "media_type": MediaType.TEXT.value,
         "file_size": len(payload.text.encode("utf-8")),
@@ -54,7 +60,8 @@ async def analyze_text_payload(payload: TextAnalyzeRequest):
 
 @router.post("/upload", response_model=ScanResponse, status_code=status.HTTP_201_CREATED)
 async def analyze_text_document(
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    current_user: Optional[CurrentUser] = Depends(get_optional_user)
 ):
     """
     Upload a .txt or .docx file and perform AI vs human text analysis.
@@ -89,6 +96,6 @@ async def analyze_text_document(
         raise HTTPException(status_code=400, detail="Document contains insufficient text (min 15 characters).")
 
     return await analyze_text_payload(
-        TextAnalyzeRequest(text=extracted_text, title=file.filename)
+        TextAnalyzeRequest(text=extracted_text, title=file.filename),
+        current_user=current_user
     )
-

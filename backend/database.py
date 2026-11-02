@@ -25,6 +25,7 @@ def init_sqlite_db():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS scans (
         id TEXT PRIMARY KEY,
+        user_id TEXT,
         filename TEXT NOT NULL,
         media_type TEXT NOT NULL,
         file_size INTEGER NOT NULL,
@@ -38,6 +39,11 @@ def init_sqlite_db():
         completed_at TEXT
     );
     """)
+    # Check if user_id column exists in existing DB
+    cursor.execute("PRAGMA table_info(scans)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if "user_id" not in columns:
+        cursor.execute("ALTER TABLE scans ADD COLUMN user_id TEXT")
     conn.commit()
     conn.close()
 
@@ -79,6 +85,7 @@ async def db_create_scan(scan_data: Dict[str, Any]) -> Dict[str, Any]:
         try:
             db_payload = {
                 "id": item["id"],
+                "user_id": item.get("user_id"),
                 "filename": item["filename"],
                 "media_type": item["media_type"],
                 "file_size": item["file_size"],
@@ -103,12 +110,13 @@ async def db_create_scan(scan_data: Dict[str, Any]) -> Dict[str, Any]:
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO scans (
-            id, filename, media_type, file_size, status, provider,
+            id, user_id, filename, media_type, file_size, status, provider,
             provider_job_id, verdict, confidence_metrics, forensic_results,
             created_at, completed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         item["id"],
+        item.get("user_id"),
         item["filename"],
         item["media_type"],
         item["file_size"],
@@ -125,10 +133,13 @@ async def db_create_scan(scan_data: Dict[str, Any]) -> Dict[str, Any]:
     conn.close()
     return _deserialize_row(item)
 
-async def db_get_scan(scan_id: str) -> Optional[Dict[str, Any]]:
+async def db_get_scan(scan_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     if supabase_client:
         try:
-            res = supabase_client.table("scans").select("*").eq("id", scan_id).execute()
+            query = supabase_client.table("scans").select("*").eq("id", scan_id)
+            if user_id:
+                query = query.eq("user_id", user_id)
+            res = query.execute()
             if res.data and len(res.data) > 0:
                 return _deserialize_row(res.data[0])
         except Exception as e:
@@ -137,7 +148,10 @@ async def db_get_scan(scan_id: str) -> Optional[Dict[str, Any]]:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM scans WHERE id = ?", (scan_id,))
+    if user_id:
+        cursor.execute("SELECT * FROM scans WHERE id = ? AND (user_id = ? OR user_id IS NULL)", (scan_id, user_id))
+    else:
+        cursor.execute("SELECT * FROM scans WHERE id = ?", (scan_id,))
     row = cursor.fetchone()
     conn.close()
     if row:
@@ -145,6 +159,7 @@ async def db_get_scan(scan_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 async def db_list_scans(
+    user_id: Optional[str] = None,
     media_type: Optional[str] = None,
     verdict: Optional[str] = None,
     status: Optional[str] = None,
@@ -154,6 +169,8 @@ async def db_list_scans(
     if supabase_client:
         try:
             query = supabase_client.table("scans").select("*").order("created_at", desc=True).range(offset, offset + limit - 1)
+            if user_id:
+                query = query.eq("user_id", user_id)
             if media_type:
                 query = query.eq("media_type", media_type)
             if verdict:
@@ -171,6 +188,9 @@ async def db_list_scans(
     cursor = conn.cursor()
     query = "SELECT * FROM scans WHERE 1=1"
     params = []
+    if user_id:
+        query += " AND (user_id = ? OR user_id IS NULL)"
+        params.append(user_id)
     if media_type:
         query += " AND media_type = ?"
         params.append(media_type)
@@ -187,11 +207,14 @@ async def db_list_scans(
     conn.close()
     return [_deserialize_row(dict(row)) for row in rows]
 
-async def db_delete_scan(scan_id: str) -> bool:
+async def db_delete_scan(scan_id: str, user_id: Optional[str] = None) -> bool:
     deleted = False
     if supabase_client:
         try:
-            res = supabase_client.table("scans").delete().eq("id", scan_id).execute()
+            query = supabase_client.table("scans").delete().eq("id", scan_id)
+            if user_id:
+                query = query.eq("user_id", user_id)
+            res = query.execute()
             if res.data:
                 deleted = True
         except Exception as e:
@@ -199,15 +222,18 @@ async def db_delete_scan(scan_id: str) -> bool:
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM scans WHERE id = ?", (scan_id,))
+    if user_id:
+        cursor.execute("DELETE FROM scans WHERE id = ? AND (user_id = ? OR user_id IS NULL)", (scan_id, user_id))
+    else:
+        cursor.execute("DELETE FROM scans WHERE id = ?", (scan_id,))
     if cursor.rowcount > 0:
         deleted = True
     conn.commit()
     conn.close()
     return deleted
 
-async def db_get_stats() -> Dict[str, Any]:
-    scans = await db_list_scans(limit=500)
+async def db_get_stats(user_id: Optional[str] = None) -> Dict[str, Any]:
+    scans = await db_list_scans(user_id=user_id, limit=500)
     total = len(scans)
     ai_count = sum(1 for s in scans if s.get("verdict") == "likely_ai")
     human_count = sum(1 for s in scans if s.get("verdict") == "likely_human")
@@ -243,4 +269,3 @@ async def db_get_stats() -> Dict[str, Any]:
         "by_media_type": by_type,
         "recent_activity": recent_activity
     }
-

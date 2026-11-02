@@ -65,6 +65,7 @@ class ScanCreate(ScanBase):
 
 class ScanResponse(BaseModel):
     id: str
+    user_id: Optional[str] = None
     filename: str
     media_type: MediaType
     file_size: int
@@ -76,6 +77,12 @@ class ScanResponse(BaseModel):
     forensic_results: ForensicResults
     created_at: datetime
     completed_at: Optional[datetime] = None
+
+class UserProfile(BaseModel):
+    id: str
+    email: str
+    full_name: Optional[str] = None
+    created_at: Optional[str] = None
 
 class TextAnalyzeRequest(BaseModel):
     text: str = Field(..., min_length=15, description="Text content to analyze for AI vs human authorship")
