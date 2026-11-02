@@ -32,3 +32,4 @@ async def get_auth_config():
         },
         "instructions": None if is_supabase_active else "Set SUPABASE_URL and SUPABASE_KEY in .env and frontend/.env to enable live cloud authentication."
     }
+

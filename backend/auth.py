@@ -96,3 +96,4 @@ async def get_optional_user(authorization: Optional[str] = Header(None)) -> Opti
         return await get_current_user(authorization)
     except HTTPException:
         return None
+

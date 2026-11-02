@@ -15,7 +15,8 @@ import { setAuthToken } from './services/api';
 const AppContent: React.FC = () => {
   const { user, session, getAccessToken } = useAuth();
   
-  const [currentView, setCurrentView] = useState<string>('home');
+  // Requirement: Opening the website must show login/register first
+  const [currentView, setCurrentView] = useState<string>(user ? 'detect' : 'auth');
   const [activeDetectTab, setActiveDetectTab] = useState<string>('image');
   const [currentScan, setCurrentScan] = useState<ScanResponse | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot-password'>('login');
@@ -30,6 +31,13 @@ const AppContent: React.FC = () => {
     const token = getAccessToken();
     setAuthToken(token);
   }, [session, user]);
+
+  // Requirement: Logout returns to the login screen
+  useEffect(() => {
+    if (!user && (currentView === 'detect' || currentView === 'history')) {
+      setCurrentView('auth');
+    }
+  }, [user]);
 
   const handleNavigate = (view: string, subTab?: string) => {
     if (subTab) {
@@ -61,6 +69,7 @@ const AppContent: React.FC = () => {
   };
 
   const handleAuthSuccess = () => {
+    // Requirement: Successful login redirects to personal dashboard
     setCurrentView(pendingViewAfterAuth || 'detect');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -85,6 +94,17 @@ const AppContent: React.FC = () => {
     }
   };
 
+  // If in full 3D Auth view, render immersive split-screen layout
+  if (currentView === 'auth') {
+    return (
+      <AuthView
+        initialMode={authMode}
+        onSuccess={handleAuthSuccess}
+        onNavigateHome={() => setCurrentView('home')}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-[#F8F0E9] text-[#282124]">
       {/* Navigation */}
@@ -98,14 +118,6 @@ const AppContent: React.FC = () => {
       <main className="flex-1 py-10 sm:py-16">
         {currentView === 'home' && (
           <HomeView onNavigate={handleNavigate} />
-        )}
-
-        {currentView === 'auth' && (
-          <AuthView
-            initialMode={authMode}
-            onSuccess={handleAuthSuccess}
-            onNavigateHome={() => setCurrentView('home')}
-          />
         )}
 
         {currentView === 'detect' && (

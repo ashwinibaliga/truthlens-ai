@@ -21,3 +21,4 @@ export const supabase: SupabaseClient = createClient(validUrl, validKey, {
     storage: window.localStorage,
   },
 });
+
