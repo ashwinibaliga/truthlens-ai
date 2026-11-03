@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Eye } from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { HomeView } from './views/HomeView';
@@ -10,13 +11,13 @@ import { AuthView } from './views/AuthView';
 import { ReportModal } from './components/ReportModal';
 import { ScanResponse } from './types';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { setAuthToken } from './services/api';
+import { setAuthToken, fetchScanById } from './services/api';
 
 const AppContent: React.FC = () => {
-  const { user, session, getAccessToken } = useAuth();
+  const { user, session, loading, getAccessToken } = useAuth();
   
   // Requirement: Opening the website must show login/register first
-  const [currentView, setCurrentView] = useState<string>(user ? 'detect' : 'auth');
+  const [currentView, setCurrentView] = useState<string>('auth');
   const [activeDetectTab, setActiveDetectTab] = useState<string>('image');
   const [currentScan, setCurrentScan] = useState<ScanResponse | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot-password'>('login');
@@ -34,10 +35,17 @@ const AppContent: React.FC = () => {
 
   // Requirement: Logout returns to the login screen
   useEffect(() => {
-    if (!user && (currentView === 'detect' || currentView === 'history')) {
+    if (!loading && !user && (currentView === 'detect' || currentView === 'history')) {
       setCurrentView('auth');
     }
-  }, [user]);
+  }, [user, loading, currentView]);
+
+  // Requirement: Successful login or OAuth redirect automatically navigates to personal dashboard
+  useEffect(() => {
+    if (!loading && user && currentView === 'auth') {
+      setCurrentView(pendingViewAfterAuth || 'detect');
+    }
+  }, [user, loading, currentView, pendingViewAfterAuth]);
 
   const handleNavigate = (view: string, subTab?: string) => {
     if (subTab) {
@@ -54,10 +62,25 @@ const AppContent: React.FC = () => {
     }
 
     if (view === 'how-it-works') {
-      setCurrentView('about');
-    } else {
-      setCurrentView(view);
+      if (currentView !== 'home') {
+        setCurrentView('home');
+        // Allow home view DOM to mount before smoothly scrolling to section
+        setTimeout(() => {
+          const section = document.getElementById('how-it-works');
+          if (section) {
+            section.scrollIntoView({ behavior: 'smooth' });
+          }
+        }, 120);
+      } else {
+        const section = document.getElementById('how-it-works');
+        if (section) {
+          section.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
+      return;
     }
+
+    setCurrentView(view);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -80,8 +103,17 @@ const AppContent: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleViewScan = (scan: ScanResponse) => {
-    setCurrentScan(scan);
+  const handleViewScan = async (scan: ScanResponse) => {
+    if (scan.id && (!scan.confidence_metrics || !scan.forensic_results)) {
+      try {
+        const full = await fetchScanById(scan.id);
+        setCurrentScan(full);
+      } catch {
+        setCurrentScan(scan);
+      }
+    } else {
+      setCurrentScan(scan);
+    }
     setCurrentView('results');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -93,6 +125,28 @@ const AppContent: React.FC = () => {
       setIsReportModalOpen(true);
     }
   };
+
+  // While resolving OAuth tokens or restoring cryptographic session, render editorial luxury loader
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F8F0E9] flex flex-col items-center justify-center p-6 text-center select-none">
+        <div className="relative mb-6">
+          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-wine to-burgundy flex items-center justify-center shadow-xl shadow-wine/25">
+            <div className="w-11 h-11 rounded-full border-2 border-rose-dusty/40 flex items-center justify-center">
+              <Eye className="w-6 h-6 text-ivory-100 animate-pulse" />
+            </div>
+          </div>
+          <div className="absolute inset-0 rounded-full border-2 border-wine/20 border-t-wine animate-spin" />
+        </div>
+        <div className="font-serif text-2xl font-bold tracking-tight text-wine flex items-center gap-2 mb-2">
+          TruthLens <span className="text-xs uppercase font-sans tracking-widest font-semibold px-1.5 py-0.5 rounded bg-wine/10 text-wine">AI</span>
+        </div>
+        <p className="text-xs uppercase tracking-widest text-charcoal-muted font-mono animate-pulse">
+          Authenticating Forensic Identity...
+        </p>
+      </div>
+    );
+  }
 
   // If in full 3D Auth view, render immersive split-screen layout
   if (currentView === 'auth') {

@@ -56,6 +56,96 @@
   box-shadow: 0 20px 40px -12px rgba(74, 16, 40, 0.12);
 }
 
+/* 3D Depth Card with Perspective */
+.card-3d-depth {
+  background: #FFFCF9;
+  border: 1px solid #E8DCD5;
+  box-shadow: 
+    0 4px 6px -1px rgba(84, 29, 43, 0.04),
+    0 12px 28px -6px rgba(84, 29, 43, 0.08),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.9);
+  transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.25s cubic-bezier(0.2, 0, 0, 1), border-color 0.25s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .card-3d-depth:hover {
+    box-shadow: 
+      0 12px 24px -4px rgba(84, 29, 43, 0.1),
+      0 24px 48px -8px rgba(84, 29, 43, 0.12),
+      inset 0 1px 0 0 rgba(255, 255, 255, 1);
+  }
+}
+
+/* Animations for Forensic Radar and 3D Gauge */
+@keyframes radarSweep {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes reverseSlowSpin {
+  0% {
+    transform: rotate(360deg);
+  }
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes pulseHalo {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.03);
+  }
+}
+
+@keyframes floatParticle {
+  0%, 100% {
+    transform: translateY(0) translateX(0);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translateY(-6px) translateX(4px);
+    opacity: 1;
+  }
+}
+
+.animate-radar-sweep {
+  animation: radarSweep 4s linear infinite;
+}
+
+.animate-reverse-slow {
+  animation: reverseSlowSpin 36s linear infinite;
+}
+
+.animate-pulse-halo {
+  animation: pulseHalo 3s ease-in-out infinite;
+}
+
+.animate-float-particle {
+  animation: floatParticle 4s ease-in-out infinite;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .animate-radar-sweep,
+  .animate-reverse-slow,
+  .animate-pulse-halo,
+  .animate-float-particle {
+    animation: none !important;
+  }
+  .card-3d-depth {
+    transition: none !important;
+  }
+}
+
 .wine-gradient-bg {
   background: linear-gradient(135deg, #4A1028 0%, #681B28 50%, #380B1E 100%);
 }

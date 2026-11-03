@@ -17,10 +17,10 @@ export const Footer: React.FC = () => {
               </span>
             </div>
             <p className="font-serif italic text-charcoal-muted text-lg max-w-md">
-              "See Beyond What Looks Real."
+              “See Beyond What Looks Real.”
             </p>
             <p className="text-xs text-charcoal-muted leading-relaxed max-w-lg">
-              TruthLens AI is a full-stack forensic media verification suite engineered to analyze images, audio, video, and written text with uncompromising mathematical rigor. Combining frequency-domain Fourier analysis, Error Level Analysis (ELA), vocal tract phase continuity, and syntactic entropy modeling.
+              TruthLens helps examine images, audio, video, and text for possible signs of AI generation or manipulation. We aim to make detection more understandable, transparent, and useful.
             </p>
           </div>
 
@@ -30,10 +30,10 @@ export const Footer: React.FC = () => {
               Detection Engines
             </h4>
             <ul className="space-y-2 text-xs text-charcoal-muted font-medium">
-              <li className="hover:text-wine transition cursor-pointer">Image & Spatial Spectrum (ELA / 2D FFT)</li>
-              <li className="hover:text-wine transition cursor-pointer">Voice & Deepfake Acoustics (ZCR / Vocoder Rolloff)</li>
-              <li className="hover:text-wine transition cursor-pointer">Video Keyframe & Temporal Jitter Analysis</li>
-              <li className="hover:text-wine transition cursor-pointer">Text & Linguistic Authorship Forensics</li>
+              <li className="hover:text-wine transition cursor-pointer">Image Analysis</li>
+              <li className="hover:text-wine transition cursor-pointer">Voice & Audio Analysis</li>
+              <li className="hover:text-wine transition cursor-pointer">Video Analysis</li>
+              <li className="hover:text-wine transition cursor-pointer">Text Analysis</li>
             </ul>
           </div>
 
@@ -42,33 +42,38 @@ export const Footer: React.FC = () => {
             <h4 className="font-serif text-sm font-bold uppercase tracking-wider text-wine">
               Trust & Transparency
             </h4>
-            <div className="p-3.5 rounded-xl bg-ivory-200/60 border border-rose-dusty/40 text-[11px] text-charcoal-muted leading-relaxed space-y-2">
-              <div className="flex items-center gap-1.5 font-semibold text-wine">
-                <Lock className="w-3.5 h-3.5" />
-                Zero Media Persistence
-              </div>
-              <p>
-                Uploaded media is processed in memory or isolated temporary scratch buffers and purged immediately following analytical extraction.
-              </p>
-            </div>
+            <ul className="space-y-2.5 text-xs text-charcoal-muted font-medium">
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-wine shrink-0" />
+                <span>Privacy-conscious processing</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-wine shrink-0" />
+                <span>Clear explanation of results</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-wine shrink-0" />
+                <span>Honest detection limitations</span>
+              </li>
+            </ul>
           </div>
         </div>
 
-        {/* Ethical Limitations Banner (Critical Development Rule compliance) */}
+        {/* Ethical Limitations Banner */}
         <div className="p-4 rounded-2xl bg-ivory-100 border border-stone-200 mb-8 text-xs text-charcoal-muted leading-relaxed">
           <div className="font-semibold text-wine mb-1 flex items-center gap-1.5">
             <Shield className="w-4 h-4" />
-            AI Detection Limitations & Ethical Standard:
+            Important Note:
           </div>
           <p>
-            All AI detection systems operate probabilistically. Detecting synthetic media does not equate to malicious intent, nor does it establish proof of disinformation. AI text analysis evaluates linguistic predictability and burstiness and cannot identify specific authors. Results should be interpreted as scientific estimates to assist human verification, not definitive legal fact.
+            AI detection is probabilistic. A detection result does not prove malicious intent or establish that something is misinformation. Results should be interpreted as estimates to support human judgment—not as definitive legal proof.
           </p>
         </div>
 
         {/* Bottom bar */}
         <div className="pt-6 border-t border-stone-200 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-charcoal-subtle">
           <div>
-            &copy; {new Date().getFullYear()} TruthLens AI. Built with precision and transparency.
+            &copy; 2026 TruthLens AI. Built with precision and a healthy dose of skepticism.
           </div>
           <div className="flex items-center gap-4">
             <span className="inline-flex items-center gap-1">
@@ -76,11 +81,10 @@ export const Footer: React.FC = () => {
               Verified Local + Neural APIs
             </span>
             <span>•</span>
-            <span>ISO/IEC Aligned Metrics</span>
+            <span>Plain-English Transparency</span>
           </div>
         </div>
       </div>
     </footer>
   );
 };
-

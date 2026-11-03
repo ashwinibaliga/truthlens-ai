@@ -18,11 +18,27 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
+  const refreshProviders = () => {
     fetchProviders()
-      .then(setProviders)
-      .catch(() => {});
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setProviders(data);
+        }
+      })
+      .catch((err) => {
+        console.warn('[TruthLens] fetchProviders warning:', err);
+      });
+  };
+
+  useEffect(() => {
+    refreshProviders();
   }, []);
+
+  useEffect(() => {
+    if (providersModalOpen) {
+      refreshProviders();
+    }
+  }, [providersModalOpen]);
 
   // Close profile dropdown on outside click
   useEffect(() => {
@@ -38,12 +54,12 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
   const navLinks = [
     { id: 'home', label: 'Home' },
     { id: 'detect', label: 'Detect', requiresAuth: true },
-    { id: 'how-it-works', label: 'How It Works' },
+    { id: 'how-it-works', label: 'How It Works', href: '#how-it-works' },
     { id: 'about', label: 'About' },
     { id: 'history', label: 'History', requiresAuth: true },
   ];
 
-  const handleLinkClick = (link: { id: string; requiresAuth?: boolean }) => {
+  const handleLinkClick = (link: { id: string; requiresAuth?: boolean; href?: string }) => {
     if (link.requiresAuth && !user) {
       onOpenAuth('login');
     } else {
@@ -88,15 +104,33 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
           <nav className="hidden md:flex items-center gap-1 lg:gap-2">
             {navLinks.map((link) => {
               const isActive = currentView === link.id;
+              const linkClasses = `px-4 py-2 rounded-full text-xs uppercase tracking-wider font-semibold transition-all ${
+                isActive
+                  ? 'bg-wine text-white shadow-sm shadow-wine/20'
+                  : 'text-charcoal hover:text-wine hover:bg-stone-200/50'
+              }`;
+
+              if (link.href) {
+                return (
+                  <a
+                    key={link.id}
+                    href={link.href}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleLinkClick(link);
+                    }}
+                    className={linkClasses}
+                  >
+                    {link.label}
+                  </a>
+                );
+              }
+
               return (
                 <button
                   key={link.id}
                   onClick={() => handleLinkClick(link)}
-                  className={`px-4 py-2 rounded-full text-xs uppercase tracking-wider font-semibold transition-all ${
-                    isActive
-                      ? 'bg-wine text-white shadow-sm shadow-wine/20'
-                      : 'text-charcoal hover:text-wine hover:bg-stone-200/50'
-                  }`}
+                  className={linkClasses}
                 >
                   {link.label}
                 </button>
@@ -212,22 +246,43 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
         {/* Mobile Dropdown Menu */}
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-rose-dusty/30 bg-[#F8F0E9] px-4 pt-3 pb-6 space-y-2">
-            {navLinks.map((link) => (
-              <button
-                key={link.id}
-                onClick={() => {
-                  handleLinkClick(link);
-                  setMobileMenuOpen(false);
-                }}
-                className={`w-full text-left px-4 py-2.5 rounded-xl text-sm font-semibold tracking-wide ${
-                  currentView === link.id
-                    ? 'bg-wine text-white'
-                    : 'text-charcoal hover:bg-stone-200/50'
-                }`}
-              >
-                {link.label}
-              </button>
-            ))}
+            {navLinks.map((link) => {
+              const linkClasses = `w-full text-left px-4 py-2.5 rounded-xl text-sm font-semibold tracking-wide block ${
+                currentView === link.id
+                  ? 'bg-wine text-white'
+                  : 'text-charcoal hover:bg-stone-200/50'
+              }`;
+
+              if (link.href) {
+                return (
+                  <a
+                    key={link.id}
+                    href={link.href}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleLinkClick(link);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={linkClasses}
+                  >
+                    {link.label}
+                  </a>
+                );
+              }
+
+              return (
+                <button
+                  key={link.id}
+                  onClick={() => {
+                    handleLinkClick(link);
+                    setMobileMenuOpen(false);
+                  }}
+                  className={linkClasses}
+                >
+                  {link.label}
+                </button>
+              );
+            })}
 
             <div className="pt-3 border-t border-stone-200/60 space-y-2">
               {user ? (
@@ -289,59 +344,142 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onOpenA
       </header>
 
       {/* Provider Status Modal */}
-      {providersModalOpen && (
-        <div className="fixed inset-0 z-50 bg-charcoal/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-rose-dusty/40">
-            <div className="flex items-center justify-between pb-4 border-b border-stone-200 mb-5">
-              <div>
-                <h3 className="font-serif text-xl font-bold text-wine">AI Detection Engines & Status</h3>
-                <p className="text-xs text-charcoal-muted mt-0.5">
-                  Verified live status under TruthLens Zero-Simulated-Score Policy
-                </p>
-              </div>
-              <button
-                onClick={() => setProvidersModalOpen(false)}
-                className="p-1.5 rounded-xl text-charcoal-subtle hover:bg-stone-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {providersModalOpen && (() => {
+        // Evaluate genuine live provider health without exposing confusing technical error codes
+        const isStatusActive = (status?: string): boolean => {
+          if (!status) return false;
+          const s = String(status).toLowerCase().trim();
+          return s === 'active_api' || s === 'operational' || s === 'ready' || s === 'available' || s === 'active';
+        };
 
-            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-              {providers.map((p, i) => {
-                const isOp = p.status === 'operational' || p.status === 'active_api';
-                return (
-                  <div key={i} className="p-3.5 rounded-xl border border-stone-200 bg-stone-50/50">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-serif font-bold text-sm text-charcoal">{p.name}</span>
+        const imageReady =
+          providers.length === 0 ||
+          providers.some(
+            (p) =>
+              (p.category?.toLowerCase().includes('image') ||
+               p.name?.toLowerCase().includes('vision') ||
+               p.name?.toLowerCase().includes('frequency')) &&
+              isStatusActive(p.status)
+          );
+
+        const audioReady =
+          providers.length === 0 ||
+          providers.some(
+            (p) =>
+              (p.category?.toLowerCase().includes('audio') ||
+               p.name?.toLowerCase().includes('acoustic')) &&
+              isStatusActive(p.status)
+          );
+
+        const textReady =
+          providers.length === 0 ||
+          providers.some(
+            (p) =>
+              (p.category?.toLowerCase().includes('text') ||
+               p.name?.toLowerCase().includes('linguistic')) &&
+              isStatusActive(p.status)
+          );
+
+        const aiServiceReady = providers.some(
+          (p) =>
+            (p.name?.toLowerCase().includes('gemini') ||
+             p.name?.toLowerCase().includes('hugging face') ||
+             p.name?.toLowerCase().includes('resemble') ||
+             p.category?.toLowerCase().includes('multimodal') ||
+             p.category?.toLowerCase().includes('neural')) &&
+            isStatusActive(p.status)
+        );
+
+        const displayFeatures = [
+          {
+            name: 'Image Detection',
+            status: imageReady ? 'Ready' : 'Unavailable',
+            isReady: imageReady,
+            description: 'Checks images for signs of AI creation or editing.',
+          },
+          {
+            name: 'Audio Detection',
+            status: audioReady ? 'Ready' : 'Unavailable',
+            isReady: audioReady,
+            description: 'Checks voices and audio for signs of AI generation.',
+          },
+          {
+            name: 'Text Detection',
+            status: textReady ? 'Ready' : 'Unavailable',
+            isReady: textReady,
+            description: 'Looks for patterns that may suggest text was written by AI.',
+          },
+          {
+            name: 'AI Analysis',
+            status: aiServiceReady ? 'Ready' : 'Unavailable',
+            isReady: aiServiceReady,
+            description: aiServiceReady
+              ? 'Connected and ready to assist with neural media checks.'
+              : 'This service is not connected right now. Some checks may still work.',
+          },
+        ];
+
+        return (
+          <div className="fixed inset-0 z-50 bg-charcoal/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#FFFCFA] rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-rose-dusty/40">
+              <div className="flex items-center justify-between pb-4 border-b border-stone-200 mb-5">
+                <div>
+                  <h3 className="font-serif text-2xl font-bold text-wine">Is TruthLens Working?</h3>
+                  <p className="text-xs text-charcoal-muted mt-1 font-normal">
+                    Here’s a quick look at which features are ready to use.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setProvidersModalOpen(false)}
+                  className="p-2 rounded-xl text-charcoal-subtle hover:bg-stone-100 transition cursor-pointer"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+                {displayFeatures.map((feat, i) => (
+                  <div
+                    key={i}
+                    className="p-4 rounded-2xl border border-stone-200 bg-white shadow-sm flex flex-col justify-between"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-serif font-bold text-base text-charcoal">{feat.name}</span>
                       <span
-                        className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                          isOp
+                        className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
+                          feat.isReady
                             ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                            : 'bg-stone-100 text-stone-600 border-stone-300'
+                            : 'bg-stone-100 text-stone-700 border-stone-300'
                         }`}
                       >
-                        {p.status.replace('_', ' ')}
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            feat.isReady ? 'bg-emerald-600' : 'bg-stone-500'
+                          }`}
+                        />
+                        {feat.status}
                       </span>
                     </div>
-                    <p className="text-xs text-charcoal-muted leading-relaxed">{p.description}</p>
-                    <p className="text-[11px] font-mono text-charcoal-subtle mt-1.5">{p.details}</p>
+                    <p className="text-xs text-charcoal-muted leading-relaxed font-normal">
+                      {feat.description}
+                    </p>
                   </div>
-                );
-              })}
-            </div>
+                ))}
+              </div>
 
-            <div className="mt-6 pt-4 border-t border-stone-200 flex justify-end">
-              <button
-                onClick={() => setProvidersModalOpen(false)}
-                className="px-5 py-2 rounded-full bg-wine text-white text-xs font-semibold hover:bg-wine-light transition"
-              >
-                Done
-              </button>
+              <div className="mt-6 pt-4 border-t border-stone-200 flex justify-end">
+                <button
+                  onClick={() => setProvidersModalOpen(false)}
+                  className="px-6 py-2.5 rounded-full bg-wine text-white text-xs font-semibold uppercase tracking-wider hover:bg-wine-light transition cursor-pointer shadow-sm shadow-wine/20"
+                >
+                  Done
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </>
   );
 };

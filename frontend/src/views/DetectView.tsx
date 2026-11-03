@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Image as ImageIcon, Mic, Video, FileText, UploadCloud, 
+import {
+  Image as ImageIcon, Mic, Video, FileText, UploadCloud,
   ArrowRight, Loader2, Sparkles, AlertCircle, BarChart3,
   CheckCircle2, RefreshCw, FileCheck
 } from 'lucide-react';
-import { 
-  ResponsiveContainer, PieChart, Pie, Cell, 
-  BarChart, Bar, XAxis, YAxis, Tooltip 
+import {
+  ResponsiveContainer, PieChart, Pie, Cell,
+  BarChart, Bar, XAxis, YAxis, Tooltip
 } from 'recharts';
-import { MediaType, ScanResponse, StatsResponse } from '../types';
-import { uploadAndScan, analyzeText, uploadTextDoc, fetchStats } from '../services/api';
+import { MediaType, ScanResponse, StatsResponse, Verdict } from '../types';
+import { uploadAndScan, analyzeText, uploadTextDoc, fetchStats, fetchScanById } from '../services/api';
 import { AudioPlayer } from '../components/AudioPlayer';
 import { VerdictBadge } from '../components/VerdictBadge';
+import { ReportModal } from '../components/ReportModal';
+import { LiveForensicScanner } from '../components/LiveForensicScanner';
 
 interface DetectViewProps {
   initialTab?: string;
@@ -19,8 +21,8 @@ interface DetectViewProps {
   onViewScan: (scan: ScanResponse) => void;
 }
 
-export const DetectView: React.FC<DetectViewProps> = ({ 
-  initialTab = 'image', 
+export const DetectView: React.FC<DetectViewProps> = ({
+  initialTab = 'image',
   onScanComplete,
   onViewScan
 }) => {
@@ -37,11 +39,63 @@ export const DetectView: React.FC<DetectViewProps> = ({
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loadingStats, setLoadingStats] = useState<boolean>(false);
 
+  // Dossier modal state for recent forensic scans
+  const [selectedScanForDossier, setSelectedScanForDossier] = useState<ScanResponse | null>(null);
+  const [isDossierModalOpen, setIsDossierModalOpen] = useState<boolean>(false);
+  const [loadingDossierId, setLoadingDossierId] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     loadStats();
   }, []);
+
+  const handleOpenDossier = async (item: {
+    id: string;
+    filename: string;
+    media_type: MediaType;
+    verdict: Verdict;
+    ai_probability: number;
+    created_at: string;
+    provider: string;
+  }) => {
+    setLoadingDossierId(item.id);
+    try {
+      // Fetch genuine complete forensic scan record by ID
+      const fullScan = await fetchScanById(item.id);
+      setSelectedScanForDossier(fullScan);
+      setIsDossierModalOpen(true);
+    } catch (err) {
+      console.warn('Could not fetch full scan details, fallback to row record:', err);
+      const fallbackScan: ScanResponse = {
+        id: item.id,
+        filename: item.filename,
+        media_type: item.media_type,
+        file_size: 0,
+        status: 'completed',
+        provider: item.provider || 'TruthLens AI Forensic Engine',
+        verdict: item.verdict,
+        confidence_metrics: {
+          ai_probability: item.ai_probability,
+          human_probability: Math.max(0, 100 - item.ai_probability),
+          confidence_level: 'moderate',
+          explanation: `Analysis determination: ${item.verdict.replace(/_/g, ' ')}.`,
+        },
+        forensic_results: {
+          media_metadata: {},
+          indicators: [],
+          technical_details: {},
+          limitations_disclaimer:
+            'All detection determinations are statistical probabilities generated through frequency spectrum analysis, spatial compression degradation (ELA), and machine learning classifiers.',
+        },
+        created_at: item.created_at,
+      };
+      setSelectedScanForDossier(fallbackScan);
+      setIsDossierModalOpen(true);
+    } finally {
+      setLoadingDossierId(null);
+    }
+  };
 
   useEffect(() => {
     if (initialTab && ['image', 'audio', 'video', 'text'].includes(initialTab)) {
@@ -191,7 +245,9 @@ export const DetectView: React.FC<DetectViewProps> = ({
           Forensic Verification Console
         </h1>
         <p className="text-sm text-charcoal-muted mt-2">
-          Select a modality to inspect spatial frequencies, compression anomalies, vocal tract jitter, or linguistic cadence.
+          Choose what you want to inspect. TruthLens checks images for visual inconsistencies, audio for voice irregularities, video for frame-level anomalies, and text for unusual writing patterns.
+
+          Because “looks real” isn’t exactly proof.
         </p>
       </div>
 
@@ -210,11 +266,10 @@ export const DetectView: React.FC<DetectViewProps> = ({
               <button
                 key={tab.id}
                 onClick={() => handleTabChange(tab.id as MediaType)}
-                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider transition-all whitespace-nowrap ${
-                  isActive
-                    ? 'bg-wine text-white shadow-md shadow-wine/20'
-                    : 'text-charcoal hover:text-wine hover:bg-ivory-200/50'
-                }`}
+                className={`flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-semibold uppercase tracking-wider transition-all whitespace-nowrap ${isActive
+                  ? 'bg-wine text-white shadow-md shadow-wine/20'
+                  : 'text-charcoal hover:text-wine hover:bg-ivory-200/50'
+                  }`}
               >
                 <Icon className="w-4 h-4" />
                 <span>{tab.label}</span>
@@ -224,14 +279,21 @@ export const DetectView: React.FC<DetectViewProps> = ({
         </div>
       </div>
 
-      {/* Main Interaction Card */}
-      <div className="editorial-card rounded-3xl p-6 sm:p-10 bg-white border border-stone-200 shadow-xl max-w-4xl mx-auto">
-        {errorMsg && (
-          <div className="mb-6 p-4 rounded-2xl bg-wine/10 border border-wine/20 text-wine text-xs flex items-center gap-2.5">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
+      {/* Main Interaction Card or Live Forensic Scanner */}
+      <div className="max-w-4xl mx-auto">
+        {isAnalyzing ? (
+          <LiveForensicScanner
+            mediaType={activeTab}
+            filename={selectedFile?.name || (activeTab === 'text' ? (textTitle || 'Submitted Text Passage') : undefined)}
+          />
+        ) : (
+          <div className="editorial-card rounded-3xl p-6 sm:p-10 bg-white border border-stone-200 shadow-xl">
+            {errorMsg && (
+              <div className="mb-6 p-4 rounded-2xl bg-wine/10 border border-wine/20 text-wine text-xs flex items-center gap-2.5">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
 
         {/* Dynamic Modality Upload Area */}
         {activeTab !== 'text' ? (
@@ -242,13 +304,12 @@ export const DetectView: React.FC<DetectViewProps> = ({
               onDragOver={handleDrag}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-3xl p-8 sm:p-12 text-center cursor-pointer transition-all duration-200 ${
-                dragActive
-                  ? 'border-wine bg-wine/5 scale-[0.99]'
-                  : selectedFile
+              className={`border-2 border-dashed rounded-3xl p-8 sm:p-12 text-center cursor-pointer transition-all duration-200 ${dragActive
+                ? 'border-wine bg-wine/5 scale-[0.99]'
+                : selectedFile
                   ? 'border-emerald-600/40 bg-emerald-500/[0.02]'
                   : 'border-stone-300 hover:border-wine/50 hover:bg-ivory-100/50'
-              }`}
+                }`}
             >
               <input
                 ref={fileInputRef}
@@ -395,11 +456,10 @@ export const DetectView: React.FC<DetectViewProps> = ({
           <button
             onClick={executeAnalysis}
             disabled={isAnalyzing || (activeTab === 'text' ? (!textInput.trim() && !selectedFile) : !selectedFile)}
-            className={`w-full sm:w-auto px-8 py-3.5 rounded-full font-semibold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
-              isAnalyzing || (activeTab === 'text' ? (!textInput.trim() && !selectedFile) : !selectedFile)
-                ? 'bg-stone-300 text-stone-500 cursor-not-allowed'
-                : 'bg-wine text-white hover:bg-wine-light shadow-md shadow-wine/20'
-            }`}
+            className={`w-full sm:w-auto px-8 py-3.5 rounded-full font-semibold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${isAnalyzing || (activeTab === 'text' ? (!textInput.trim() && !selectedFile) : !selectedFile)
+              ? 'bg-stone-300 text-stone-500 cursor-not-allowed'
+              : 'bg-wine text-white hover:bg-wine-light shadow-md shadow-wine/20'
+              }`}
           >
             {isAnalyzing ? (
               <>
@@ -415,6 +475,8 @@ export const DetectView: React.FC<DetectViewProps> = ({
           </button>
         </div>
       </div>
+      )}
+    </div>
 
       {/* Actual Stored Analytics & Charts (Rule 5 & 10 Compliance) */}
       <section className="pt-6">
@@ -422,10 +484,10 @@ export const DetectView: React.FC<DetectViewProps> = ({
           <div>
             <h2 className="font-serif text-2xl sm:text-3xl font-bold text-charcoal flex items-center gap-2">
               <BarChart3 className="w-6 h-6 text-wine" />
-              Telemetry & Global Scan Telemetrics
+              TruthLens Insights
             </h2>
             <p className="text-xs text-charcoal-muted mt-0.5">
-              Empirical statistics calculated directly from verified database records
+              A snapshot of our analysis activity.
             </p>
           </div>
 
@@ -566,10 +628,18 @@ export const DetectView: React.FC<DetectViewProps> = ({
                       </td>
                       <td className="py-3 px-3 text-right">
                         <button
-                          onClick={() => onViewScan(item as any)}
-                          className="px-3 py-1 rounded-lg bg-ivory-200 text-wine hover:bg-wine hover:text-white font-medium transition text-xs"
+                          onClick={() => handleOpenDossier(item)}
+                          disabled={loadingDossierId === item.id}
+                          className="px-3.5 py-1.5 rounded-xl bg-ivory-200 text-wine hover:bg-wine hover:text-white font-medium transition text-xs cursor-pointer shadow-sm disabled:opacity-60 inline-flex items-center gap-1.5"
                         >
-                          View Dossier
+                          {loadingDossierId === item.id ? (
+                            <>
+                              <span className="w-3 h-3 rounded-full border-2 border-wine/40 border-t-wine animate-spin" />
+                              <span>Opening...</span>
+                            </>
+                          ) : (
+                            <span>View Dossier</span>
+                          )}
                         </button>
                       </td>
                     </tr>
@@ -580,6 +650,13 @@ export const DetectView: React.FC<DetectViewProps> = ({
           </div>
         )}
       </section>
+
+      {/* Forensic Dossier Modal for Selected Scan */}
+      <ReportModal
+        scan={selectedScanForDossier}
+        isOpen={isDossierModalOpen}
+        onClose={() => setIsDossierModalOpen(false)}
+      />
     </div>
   );
 };

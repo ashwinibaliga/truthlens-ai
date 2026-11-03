@@ -1,3 +1,4 @@
+import os
 import re
 import math
 from typing import Dict, Any, List
@@ -151,42 +152,90 @@ async def analyze_text(text: str, title: str = "Submitted Text") -> Dict[str, An
         ))
 
     # ---------------------------------------------------------
-    # 5. External Hugging Face AI Text Detector
+    # 5. External Neural AI Text Detector (Gemini / Hugging Face)
     # ---------------------------------------------------------
-    hf_used = False
-    hf_score = None
+    neural_used = False
+    neural_score = None
+    neural_explanation = ""
     provider_name = "TruthLens Linguistic Forensics Engine (Local)"
 
-    if settings.HUGGINGFACE_API_KEY:
+    # Priority 1: Google Gemini Multimodal Analysis
+    gemini_key = os.getenv("GEMINI_API_KEY") or settings.GEMINI_API_KEY
+    if gemini_key:
         try:
-            hf_url = "https://api-inference.huggingface.co/models/openai-community/roberta-base-openai-detector"
-            headers = {"Authorization": f"Bearer {settings.HUGGINGFACE_API_KEY}"}
-            payload = {"inputs": cleaned_text[:1000]}
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                res = await client.post(hf_url, headers=headers, json=payload)
+            gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent"
+            headers = {"x-goog-api-key": gemini_key, "Content-Type": "application/json"}
+            prompt = (
+                f"You are a digital forensic linguist. Analyze this text for AI vs Human generation:\n\n"
+                f"\"\"\"{cleaned_text[:2000]}\"\"\"\n\n"
+                f"Return JSON with:\n"
+                f"- ai_probability: float between 0 and 100\n"
+                f"- human_probability: float between 0 and 100\n"
+                f"- verdict: one of 'likely_ai', 'likely_human', 'potentially_manipulated', or 'inconclusive'\n"
+                f"- key_findings: concise 1-sentence forensic summary of linguistic and stylistic patterns"
+            )
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"responseMimeType": "application/json"}
+            }
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                res = await client.post(gemini_url, headers=headers, json=payload)
                 if res.status_code == 200:
-                    data = res.json()
-                    # e.g. [[{"label": "Fake", "score": 0.98}, {"label": "Real", "score": 0.02}]]
-                    if isinstance(data, list) and len(data) > 0:
-                        inner = data[0] if isinstance(data[0], list) else data
-                        for item in inner:
-                            lbl = item.get("label", "").lower()
-                            if "fake" in lbl or "ai" in lbl:
-                                hf_score = float(item.get("score", 0.5)) * 100.0
-                                hf_used = True
-                                provider_name = "Hugging Face RoBERTa Detector + TruthLens Linguistic Engine"
-                                break
+                    import json
+                    gemini_json = json.loads(res.json()["candidates"][0]["content"]["parts"][0]["text"])
+                    neural_score = float(gemini_json.get("ai_probability", 50.0))
+                    neural_explanation = str(gemini_json.get("key_findings", ""))
+                    neural_used = True
+                    provider_name = "Google Gemini + TruthLens Linguistic Forensics"
+                    evidence.append(EvidenceItem(
+                        title="Google Gemini Neural Linguistic Evaluation",
+                        description=neural_explanation or "Neural semantic and structural discourse analysis.",
+                        metric_value=f"AI Probability: {neural_score:.1f}%",
+                        indicator_type=IndicatorStatus.FLAG if neural_score >= 60 else (IndicatorStatus.PASS if neural_score <= 40 else IndicatorStatus.INCONCLUSIVE),
+                        detail="Evaluated via Gemini neural linguistic model."
+                    ))
+                else:
+                    print(f"[Gemini Text API] Status {res.status_code}: {res.text[:120]}")
         except Exception as e:
-            print(f"[HF Text API] Query error: {e}")
+            print(f"[Gemini Text API] Connection error: {e}")
+
+    # Priority 2: Hugging Face RoBERTa Detector (if Gemini not active)
+    if not neural_used:
+        hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_API_KEY") or settings.HUGGINGFACE_API_KEY
+        if hf_token:
+            try:
+                hf_url = "https://router.huggingface.co/hf-inference/models/openai-community/roberta-base-openai-detector"
+                headers = {"Authorization": f"Bearer {hf_token}"}
+                payload = {"inputs": cleaned_text[:1000]}
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    res = await client.post(hf_url, headers=headers, json=payload)
+                    if res.status_code == 200:
+                        data = res.json()
+                        if isinstance(data, list) and len(data) > 0:
+                            inner = data[0] if isinstance(data[0], list) else data
+                            for item in inner:
+                                lbl = item.get("label", "").lower()
+                                if "fake" in lbl or "ai" in lbl:
+                                    neural_score = float(item.get("score", 0.5)) * 100.0
+                                    neural_used = True
+                                    neural_explanation = "Evaluated via pretrained RoBERTa neural detector corroborated with lexical entropy."
+                                    provider_name = "Hugging Face RoBERTa Detector + TruthLens Linguistic Engine"
+                                    break
+                    elif res.status_code == 402:
+                        print("[HF Text API] Notice: HTTP 402 - Account requires pre-paid inference credits on router.huggingface.co. Falling back to local linguistic engine.")
+                    else:
+                        print(f"[HF Text API] HTTP {res.status_code}: {res.text[:120]}")
+            except Exception as e:
+                print(f"[HF Text API] Connection error: {e}")
 
     # ---------------------------------------------------------
     # 6. Confidence and Verdict Calculation
     # ---------------------------------------------------------
-    if hf_used and hf_score is not None:
-        ai_prob = round(hf_score, 1)
+    if neural_used and neural_score is not None:
+        ai_prob = round(neural_score, 1)
         human_prob = round(100.0 - ai_prob, 1)
         conf_level = ConfidenceLevel.HIGH if (ai_prob > 85 or ai_prob < 15) else ConfidenceLevel.MODERATE
-        explanation = "Evaluated via pretrained RoBERTa neural detector corroborated with lexical entropy analysis."
+        explanation = neural_explanation or "Evaluated via neural model corroborated with lexical entropy analysis."
     else:
         flags = sum(1 for e in evidence if e.indicator_type == IndicatorStatus.FLAG)
         passes = sum(1 for e in evidence if e.indicator_type == IndicatorStatus.PASS)

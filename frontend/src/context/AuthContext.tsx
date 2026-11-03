@@ -6,6 +6,8 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  authError: string | null;
+  setAuthError: (err: string | null) => void;
   isSupabaseConfigured: boolean;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | AuthError | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | AuthError | null }>;
@@ -21,24 +23,85 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // Initialize and listen to auth changes
+  // Initialize and listen to auth changes, including OAuth redirects
   useEffect(() => {
     if (isSupabaseConfigured) {
-      // 1. Get initial session from Supabase
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
-      });
+      // 0. Extract potential OAuth error parameters from query string or URL hash
+      const searchParams = new URLSearchParams(window.location.search);
+      const rawHash = window.location.hash.startsWith('#')
+        ? window.location.hash.substring(1)
+        : window.location.hash;
+      const hashParams = new URLSearchParams(rawHash);
 
-      // 2. Subscribe to auth events
+      const errorParam = searchParams.get('error') || hashParams.get('error');
+      const errorDesc =
+        searchParams.get('error_description') || hashParams.get('error_description');
+
+      if (errorParam || errorDesc) {
+        const readableMsg = (errorDesc || errorParam || 'Authentication failed').replace(/\+/g, ' ');
+        setAuthError(readableMsg);
+        // Clean up error query/hash from the browser URL bar
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+
+      // Check for PKCE auth code in URL
+      const code = searchParams.get('code');
+
+      if (code) {
+        setLoading(true);
+        supabase.auth
+          .exchangeCodeForSession(code)
+          .then(({ data, error }) => {
+            if (error) {
+              console.warn('OAuth code exchange warning:', error.message);
+            } else if (data?.session) {
+              setSession(data.session);
+              setUser(data.user);
+            }
+          })
+          .catch((err) => {
+            console.error('OAuth code exchange error:', err);
+          })
+          .finally(() => {
+            // Remove code & state query params from address bar
+            window.history.replaceState({}, document.title, window.location.pathname);
+            // Verify final active session
+            supabase.auth.getSession().then(({ data: { session } }) => {
+              if (session) {
+                setSession(session);
+                setUser(session.user);
+              }
+              setLoading(false);
+            });
+          });
+      } else {
+        // 1. Get initial session from Supabase
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          setSession(session);
+          setUser(session?.user ?? null);
+          setLoading(false);
+        });
+      }
+
+      // 2. Subscribe to auth events (SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED)
       const {
         data: { subscription },
-      } = supabase.auth.onAuthStateChange((_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
+      } = supabase.auth.onAuthStateChange((event, activeSession) => {
+        setSession(activeSession);
+        setUser(activeSession?.user ?? null);
         setLoading(false);
+
+        // On successful sign-in, strip any lingering OAuth hash or search fragments
+        if (event === 'SIGNED_IN') {
+          if (
+            window.location.search.includes('code=') ||
+            window.location.hash.includes('access_token=')
+          ) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        }
       });
 
       return () => subscription.unsubscribe();
@@ -173,10 +236,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signInWithGoogle = async () => {
     if (isSupabaseConfigured) {
+      setAuthError(null);
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'select_account',
+          },
         },
       });
       return { error };
@@ -196,6 +264,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         user,
         session,
         loading,
+        authError,
+        setAuthError,
         isSupabaseConfigured,
         signUp,
         signIn,

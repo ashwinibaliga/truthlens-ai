@@ -202,41 +202,101 @@ async def analyze_image(file_bytes: bytes, filename: str) -> Dict[str, Any]:
         indicators_data["fft_error"] = str(e)
 
     # ---------------------------------------------------------
-    # 4. Hugging Face AI Vision Model Integration
+    # 4. Neural AI Vision Model Integration (Gemini / Hugging Face)
     # ---------------------------------------------------------
-    hf_score = None
-    hf_provider_used = False
+    neural_score = None
+    neural_provider_used = False
+    neural_explanation = ""
     provider_name = "TruthLens Spectral & ELA Forensics Engine (Local)"
 
-    if settings.HUGGINGFACE_API_KEY:
+    # Priority 1: Google Gemini Multimodal Vision Analysis
+    gemini_key = os.getenv("GEMINI_API_KEY") or settings.GEMINI_API_KEY
+    if gemini_key:
         try:
-            # Query Hugging Face vision inference API for deepfake detection
-            hf_url = "https://api-inference.huggingface.co/models/dima806/deepfake_vs_real_image_detection"
-            headers = {"Authorization": f"Bearer {settings.HUGGINGFACE_API_KEY}"}
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(hf_url, headers=headers, content=file_bytes)
-                if resp.status_code == 200:
-                    hf_res = resp.json()
-                    # e.g. [{"label": "Fake", "score": 0.94}, {"label": "Real", "score": 0.06}]
-                    if isinstance(hf_res, list):
-                        for item in hf_res:
-                            lbl = item.get("label", "").lower()
-                            if "fake" in lbl or "ai" in lbl:
-                                hf_score = float(item.get("score", 0.5)) * 100.0
-                                hf_provider_used = True
-                                provider_name = "Hugging Face (dima806/deepfake_vs_real) + TruthLens Forensics"
-                                break
+            import base64
+            import json
+            mime_type = "image/jpeg"
+            if img_format == "PNG":
+                mime_type = "image/png"
+            elif img_format == "WEBP":
+                mime_type = "image/webp"
+
+            b64_img = base64.b64encode(file_bytes).decode("utf-8")
+            gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent"
+            headers = {"x-goog-api-key": gemini_key, "Content-Type": "application/json"}
+            prompt = (
+                "Forensic Image Inspection Task:\n"
+                "Inspect this image for visual signatures of generative AI synthesis (e.g. Midjourney, Stable Diffusion, DALL-E, Flux), "
+                "such as anatomical inconsistencies, texture blending anomalies, synthetic lighting, background incoherence, or digital artifacts.\n"
+                "Return JSON with:\n"
+                "- ai_probability: float between 0 and 100\n"
+                "- human_probability: float between 0 and 100\n"
+                "- key_findings: concise 1-sentence forensic summary of visual consistency or synthetic anomalies"
+            )
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"text": prompt},
+                        {"inlineData": {"mimeType": mime_type, "data": b64_img}}
+                    ]
+                }],
+                "generationConfig": {"responseMimeType": "application/json"}
+            }
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                res = await client.post(gemini_url, headers=headers, json=payload)
+                if res.status_code == 200:
+                    gemini_json = json.loads(res.json()["candidates"][0]["content"]["parts"][0]["text"])
+                    neural_score = float(gemini_json.get("ai_probability", 50.0))
+                    neural_explanation = str(gemini_json.get("key_findings", ""))
+                    neural_provider_used = True
+                    provider_name = "Google Gemini + TruthLens Spectral Forensics"
+                    evidence.append(EvidenceItem(
+                        title="Google Gemini Neural Visual Inspection",
+                        description=neural_explanation or "Multimodal spatial and semantic artifact analysis.",
+                        metric_value=f"AI Probability: {neural_score:.1f}%",
+                        indicator_type=IndicatorStatus.FLAG if neural_score >= 60 else (IndicatorStatus.PASS if neural_score <= 40 else IndicatorStatus.INCONCLUSIVE),
+                        detail="Evaluated via Gemini multimodal visual model."
+                    ))
+                else:
+                    print(f"[Gemini Vision API] Status {res.status_code}: {res.text[:120]}")
         except Exception as e:
-            print(f"[HF Vision API] Query error: {e}")
+            print(f"[Gemini Vision API] Connection error: {e}")
+
+    # Priority 2: Hugging Face Deepfake Vision Model
+    if not neural_provider_used:
+        hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_API_KEY") or settings.HUGGINGFACE_API_KEY
+        if hf_token:
+            try:
+                hf_url = "https://router.huggingface.co/hf-inference/models/dima806/deepfake_vs_real_image_detection"
+                headers = {"Authorization": f"Bearer {hf_token}"}
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.post(hf_url, headers=headers, content=file_bytes)
+                    if resp.status_code == 200:
+                        hf_res = resp.json()
+                        if isinstance(hf_res, list):
+                            for item in hf_res:
+                                lbl = item.get("label", "").lower()
+                                if "fake" in lbl or "ai" in lbl:
+                                    neural_score = float(item.get("score", 0.5)) * 100.0
+                                    neural_provider_used = True
+                                    neural_explanation = "Evaluated using pretrained Hugging Face Vision Transformer validated against multi-spectrum spatial forensics."
+                                    provider_name = "Hugging Face (dima806/deepfake_vs_real) + TruthLens Forensics"
+                                    break
+                    elif resp.status_code == 402:
+                        print("[HF Vision API] Notice: HTTP 402 - Account requires pre-paid inference credits on router.huggingface.co. Falling back to local FFT & ELA forensics.")
+                    else:
+                        print(f"[HF Vision API] HTTP {resp.status_code}: {resp.text[:120]}")
+            except Exception as e:
+                print(f"[HF Vision API] Connection error: {e}")
 
     # ---------------------------------------------------------
     # 5. Synthesis & Confidence Calculation
     # ---------------------------------------------------------
-    if hf_provider_used and hf_score is not None:
-        ai_prob = round(hf_score, 1)
+    if neural_provider_used and neural_score is not None:
+        ai_prob = round(neural_score, 1)
         human_prob = round(100.0 - ai_prob, 1)
         conf_level = ConfidenceLevel.HIGH if (ai_prob > 80 or ai_prob < 20) else ConfidenceLevel.MODERATE
-        explanation = f"Evaluated using pretrained Hugging Face Vision Transformer validated against multi-spectrum spatial forensics."
+        explanation = neural_explanation or "Evaluated using neural visual transformer validated against multi-spectrum spatial forensics."
     else:
         # Genuine Forensic Multi-Factor Scoring
         flag_count = sum(1 for e in evidence if e.indicator_type == IndicatorStatus.FLAG)

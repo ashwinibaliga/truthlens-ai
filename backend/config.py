@@ -27,7 +27,8 @@ class Settings(BaseModel):
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
     
     # Real AI Providers Keys (Optional, system uses genuine local forensics + API if provided)
-    HUGGINGFACE_API_KEY: str = os.getenv("HUGGINGFACE_API_KEY", "")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    HUGGINGFACE_API_KEY: str = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_API_KEY", "")
     RESEMBLE_API_KEY: str = os.getenv("RESEMBLE_API_KEY", "")
     
     # Upload Settings

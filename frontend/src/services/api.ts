@@ -123,7 +123,27 @@ export async function fetchStats(): Promise<StatsResponse> {
 }
 
 export async function fetchProviders(): Promise<ProviderStatus[]> {
-  const res = await fetch(`${API_BASE_URL}/api/providers`);
-  if (!res.ok) throw new Error('Failed to fetch provider status.');
-  return res.json();
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/providers`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    // Fallback: If localhost failed (e.g. Windows IPv6 resolving to ::1 instead of 127.0.0.1)
+    if (API_BASE_URL.includes('localhost')) {
+      try {
+        const altUrl = API_BASE_URL.replace('localhost', '127.0.0.1');
+        const altRes = await fetch(`${altUrl}/api/providers`);
+        if (altRes.ok) return await altRes.json();
+      } catch {}
+    }
+    // Also try relative path through Vite proxy
+    try {
+      const relRes = await fetch('/api/providers');
+      if (relRes.ok) return await relRes.json();
+    } catch {}
+    console.error('[TruthLens API] Error fetching providers:', err);
+    throw err;
+  }
+  throw new Error('Failed to fetch provider status.');
 }

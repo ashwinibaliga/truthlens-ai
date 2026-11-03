@@ -159,6 +159,7 @@ async def analyze_audio(file_bytes: bytes, filename: str) -> Dict[str, Any]:
     resemble_score = None
     provider_name = "TruthLens Acoustic Spectral Forensics Engine (Local)"
 
+    # Priority 1: Resemble Detect API (if key configured)
     if settings.RESEMBLE_API_KEY:
         try:
             # Resemble Detect API (multimodal audio deepfake provider)
@@ -176,11 +177,67 @@ async def analyze_audio(file_bytes: bytes, filename: str) -> Dict[str, Any]:
         except Exception as e:
             print(f"[Resemble Detect API] Error: {e}")
 
-    # Fallback to Hugging Face if Resemble is not set but HF is
-    if not resemble_used and settings.HUGGINGFACE_API_KEY:
+    # Priority 2: Google Gemini Multimodal Audio Analysis
+    gemini_key = os.getenv("GEMINI_API_KEY") or settings.GEMINI_API_KEY
+    if not resemble_used and gemini_key:
         try:
-            hf_url = "https://api-inference.huggingface.co/models/MattyB95/AST-voice-deepfake"
-            headers = {"Authorization": f"Bearer {settings.HUGGINGFACE_API_KEY}"}
+            import base64
+            import json
+            mime = "audio/wav"
+            if ext == ".mp3":
+                mime = "audio/mp3"
+            elif ext in [".m4a", ".aac"]:
+                mime = "audio/aac"
+            elif ext == ".ogg":
+                mime = "audio/ogg"
+
+            audio_b64 = base64.b64encode(file_bytes[:2000000]).decode("utf-8")
+            gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent"
+            headers = {"x-goog-api-key": gemini_key, "Content-Type": "application/json"}
+            prompt = (
+                "Forensic Audio & Speech Analysis:\n"
+                "Analyze this audio recording for indications of synthetic voice cloning, neural vocoder generation (e.g. ElevenLabs, VALL-E), or AI speech synthesis.\n"
+                "Return JSON with:\n"
+                "- ai_probability: float between 0 and 100\n"
+                "- human_probability: float between 0 and 100\n"
+                "- key_findings: concise 1-sentence forensic summary of vocal cadence, acoustic naturalness, or robotic artifacts"
+            )
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"text": prompt},
+                        {"inlineData": {"mimeType": mime, "data": audio_b64}}
+                    ]
+                }],
+                "generationConfig": {"responseMimeType": "application/json"}
+            }
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                res = await client.post(gemini_url, headers=headers, json=payload)
+                if res.status_code == 200:
+                    g_json = json.loads(res.json()["candidates"][0]["content"]["parts"][0]["text"])
+                    g_score = float(g_json.get("ai_probability", 50.0))
+                    g_reason = str(g_json.get("key_findings", ""))
+                    resemble_score = g_score
+                    resemble_used = True
+                    provider_name = "Google Gemini + TruthLens Acoustic Forensics"
+                    evidence.append(EvidenceItem(
+                        title="Google Gemini Neural Acoustic Evaluation",
+                        description=g_reason or "Neural speech cadence and vocoder artifact analysis.",
+                        metric_value=f"AI Probability: {g_score:.1f}%",
+                        indicator_type=IndicatorStatus.FLAG if g_score >= 60 else (IndicatorStatus.PASS if g_score <= 40 else IndicatorStatus.INCONCLUSIVE),
+                        detail="Evaluated via Gemini multimodal speech model."
+                    ))
+                else:
+                    print(f"[Gemini Audio API] Status {res.status_code}: {res.text[:120]}")
+        except Exception as e:
+            print(f"[Gemini Audio API] Connection error: {e}")
+
+    # Priority 3: Fallback to Hugging Face if Resemble & Gemini are not set
+    hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_API_KEY") or settings.HUGGINGFACE_API_KEY
+    if not resemble_used and hf_token:
+        try:
+            hf_url = "https://router.huggingface.co/hf-inference/models/MattyB95/AST-voice-deepfake"
+            headers = {"Authorization": f"Bearer {hf_token}"}
             async with httpx.AsyncClient(timeout=12.0) as client:
                 res = await client.post(hf_url, headers=headers, content=file_bytes)
                 if res.status_code == 200:
@@ -193,6 +250,10 @@ async def analyze_audio(file_bytes: bytes, filename: str) -> Dict[str, Any]:
                                 resemble_used = True
                                 provider_name = "Hugging Face AST-Voice-Deepfake + TruthLens Forensics"
                                 break
+                elif res.status_code == 402:
+                    print("[HF Audio API] Notice: HTTP 402 - Account requires pre-paid inference credits on router.huggingface.co. Falling back to local acoustic spectrum analysis.")
+                else:
+                    print(f"[HF Audio API] HTTP {res.status_code}: {res.text[:120]}")
         except Exception as e:
             print(f"[HF Audio API] Error: {e}")
 

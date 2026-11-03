@@ -76,7 +76,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({ onViewScan, onNavigate
             Forensic Scan Archives
           </h1>
           <p className="text-xs text-charcoal-muted mt-1">
-            Historical records, probabilistic assessments, and verified reports stored in database.
+            Every scan leaves a record. Revisit past results, review findings, and download reports. Because “I checked it once” is not exactly an audit trail.
           </p>
         </div>
 
