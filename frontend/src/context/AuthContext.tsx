@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
 
@@ -9,7 +9,7 @@ interface AuthContextType {
   authError: string | null;
   setAuthError: (err: string | null) => void;
   isSupabaseConfigured: boolean;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | AuthError | null }>;
+  signUp: (email: string, password: string, fullName: string) => Promise<{ error: Error | AuthError | null; needsEmailConfirmation?: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | AuthError | null }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: Error | AuthError | null }>;
@@ -24,6 +24,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [authError, setAuthError] = useState<string | null>(null);
+  const isSigningUpRef = useRef<boolean>(false);
 
   // Initialize and listen to auth changes, including OAuth redirects
   useEffect(() => {
@@ -89,6 +90,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const {
         data: { subscription },
       } = supabase.auth.onAuthStateChange((event, activeSession) => {
+        // Discard any session notifications emitted during user registration
+        if (isSigningUpRef.current) {
+          return;
+        }
         setSession(activeSession);
         setUser(activeSession?.user ?? null);
         setLoading(false);
@@ -132,26 +137,58 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return null;
   };
 
-  const signUp = async (email: string, password: string, fullName: string) => {
+  const signUp = async (
+    email: string,
+    password: string,
+    fullName: string
+  ): Promise<{ error: Error | AuthError | null; needsEmailConfirmation?: boolean }> => {
     if (isSupabaseConfigured) {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
+      isSigningUpRef.current = true;
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: fullName,
+            },
           },
-        },
-      });
-      if (error) return { error };
-      if (data.session) {
-        setSession(data.session);
-        setUser(data.user);
+        });
+
+        if (error) return { error, needsEmailConfirmation: false };
+
+        // Handle case where user already exists (Supabase email enumeration protection)
+        if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+          return {
+            error: new Error('An account with this email address already exists. Please sign in instead.'),
+            needsEmailConfirmation: false,
+          };
+        }
+
+        // If Supabase created an active session (e.g. if email confirmation is disabled),
+        // immediately sign out so the user is NOT automatically logged in or given a session.
+        if (data?.session) {
+          try {
+            await supabase.auth.signOut();
+          } catch (signOutErr) {
+            console.warn('Signout after registration warning:', signOutErr);
+          }
+        }
+
+        // Ensure user and session state remain null after signup
+        setUser(null);
+        setSession(null);
+
+        const needsEmailConfirmation = Boolean(data?.user && !data?.session);
+        return { error: null, needsEmailConfirmation };
+      } finally {
+        isSigningUpRef.current = false;
       }
-      return { error: null };
     } else {
       // Local development registration
-      const newId = 'user_' + Math.random().toString(36).substring(2, 11);
+      const newId =
+        'user_' + Math.random().toString(36).substring(2, 11);
+
       const newUser = {
         id: newId,
         email,
@@ -161,18 +198,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         created_at: new Date().toISOString(),
       } as unknown as User;
 
-      const newSession = {
-        access_token: `dev-session-${newId}:${email}:${fullName}`,
-        refresh_token: 'dev-refresh-token',
-        expires_in: 3600,
-        token_type: 'bearer',
-        user: newUser,
-      } as unknown as Session;
+      // Store the account locally, but do not create an active session.
+      localStorage.setItem(
+        'truthlens_dev_user',
+        JSON.stringify({ user: newUser, password })
+      );
 
-      localStorage.setItem('truthlens_dev_session', JSON.stringify({ user: newUser, session: newSession }));
-      setUser(newUser);
-      setSession(newSession);
-      return { error: null };
+      return { error: null, needsEmailConfirmation: false };
     }
   };
 

@@ -27,6 +27,9 @@ const AppContent: React.FC = () => {
   const [isReportModalOpen, setIsReportModalOpen] = useState<boolean>(false);
   const [modalScan, setModalScan] = useState<ScanResponse | null>(null);
 
+  // Track whether initial authentication check on mount has completed
+  const initialAuthChecked = React.useRef(false);
+
   // Sync token whenever session changes
   useEffect(() => {
     const token = getAccessToken();
@@ -40,12 +43,15 @@ const AppContent: React.FC = () => {
     }
   }, [user, loading, currentView]);
 
-  // Requirement: Successful login or OAuth redirect automatically navigates to personal dashboard
+  // Navigate to personal dashboard on initial mount if an existing valid session is present
   useEffect(() => {
-    if (!loading && user && currentView === 'auth') {
-      setCurrentView(pendingViewAfterAuth || 'detect');
+    if (!loading && !initialAuthChecked.current) {
+      initialAuthChecked.current = true;
+      if (user && currentView === 'auth') {
+        setCurrentView(pendingViewAfterAuth || 'detect');
+      }
     }
-  }, [user, loading, currentView, pendingViewAfterAuth]);
+  }, [loading, user, currentView, pendingViewAfterAuth]);
 
   const handleNavigate = (view: string, subTab?: string) => {
     if (subTab) {

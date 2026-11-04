@@ -46,13 +46,12 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // If user is already authenticated (e.g. following OAuth redirect), navigate immediately
+  // If user is already authenticated on mount, navigate immediately
   React.useEffect(() => {
     if (user) {
       onSuccess();
     }
-  }, [user, onSuccess]);
-
+  }, []);
   // Synchronize any OAuth callback errors from AuthContext
   React.useEffect(() => {
     if (authError) {
@@ -82,15 +81,22 @@ export const AuthView: React.FC<AuthViewProps> = ({
         }
 
         const res = await signUp(email.trim(), password, fullName.trim());
+
         if (res.error) throw res.error;
 
-        const token = getAccessToken();
-        setAuthToken(token);
+        // Switch to the login tab after successful registration
+        setMode('login');
+        setPassword('');
+        setConfirmPassword('');
+        setFullName('');
+        setAgreeTerms(false);
+        setErrorMsg(null);
 
-        setSuccessMsg('Identity registered. Redirecting to personal forensic console...');
-        setTimeout(() => {
-          onSuccess();
-        }, 700);
+        if (res.needsEmailConfirmation) {
+          setSuccessMsg('Account created! Please check your email to confirm your account before logging in.');
+        } else {
+          setSuccessMsg('Account created successfully! Please log in with your email and password.');
+        }
       } else if (mode === 'login') {
         if (!email.trim() || !password) {
           throw new Error('Please enter both your email address and password.');
@@ -192,8 +198,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       setSuccessMsg(null);
                     }}
                     className={`px-5 py-2 rounded-xl text-xs font-semibold uppercase tracking-wider transition-all ${mode === 'login'
-                        ? 'bg-wine text-white shadow-md shadow-wine/25'
-                        : 'text-charcoal-muted hover:text-wine'
+                      ? 'bg-wine text-white shadow-md shadow-wine/25'
+                      : 'text-charcoal-muted hover:text-wine'
                       }`}
                   >
                     Sign In
@@ -206,8 +212,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
                       setSuccessMsg(null);
                     }}
                     className={`px-5 py-2 rounded-xl text-xs font-semibold uppercase tracking-wider transition-all ${mode === 'signup'
-                        ? 'bg-wine text-white shadow-md shadow-wine/25'
-                        : 'text-charcoal-muted hover:text-wine'
+                      ? 'bg-wine text-white shadow-md shadow-wine/25'
+                      : 'text-charcoal-muted hover:text-wine'
                       }`}
                   >
                     Register
